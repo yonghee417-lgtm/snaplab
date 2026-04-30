@@ -24,6 +24,7 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
     QPolygonF,
     QTransform,
     QWheelEvent,
@@ -31,6 +32,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QFrame,
     QGraphicsItem,
+    QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
     QTextEdit,
@@ -74,25 +76,6 @@ class _AnnotationLayer(QGraphicsItem):
         self._canvas._paint_annotations(painter, include_in_progress=True)
 
 
-class _ImageLayer(QGraphicsItem):
-    def __init__(self, width: int, height: int, tiles: list[tuple[QRectF, QImage]]) -> None:
-        super().__init__()
-        self._width = width
-        self._height = height
-        self._tiles = tiles
-        self.setZValue(0)
-
-    def boundingRect(self) -> QRectF:
-        return QRectF(0, 0, self._width, self._height)
-
-    def paint(self, painter: QPainter, option, _widget=None) -> None:
-        exposed = option.exposedRect
-        painter.setRenderHint(QPainter.SmoothPixmapTransform, False)
-        for rect, image in self._tiles:
-            if rect.intersects(exposed):
-                painter.drawImage(rect.topLeft(), image)
-
-
 class Canvas(QGraphicsView):
     image_changed = Signal()
     text_selection_changed = Signal(object)
@@ -121,8 +104,9 @@ class Canvas(QGraphicsView):
         self._scene = QGraphicsScene(self)
         self._scene.setSceneRect(0, 0, self._img_w, self._img_h)
         self.setScene(self._scene)
-        self._image_layer = _ImageLayer(self._img_w, self._img_h, self._make_base_tiles())
-        self._scene.addItem(self._image_layer)
+        self._image_tiles = self._make_base_tile_items()
+        for item in self._image_tiles:
+            self._scene.addItem(item)
         self._layer = _AnnotationLayer(self)
         self._scene.addItem(self._layer)
 
@@ -144,7 +128,12 @@ class Canvas(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
-        self.viewport().setStyleSheet("background: #0B0E13;")
+        # NOTE: do NOT call self.viewport().setStyleSheet(...). Qt 6 has a
+        # well-documented incompatibility between QGraphicsView's scene
+        # rendering and stylesheets applied to the viewport — under
+        # high-DPI / large-scene conditions the backing store fails to flush
+        # and the entire client area paints as the OS default (light gray).
+        # The dark background is provided by setBackgroundBrush above.
         self.setCursor(Qt.CrossCursor)
 
     # --- public API --------------------------------------------------------
@@ -246,16 +235,22 @@ class Canvas(QGraphicsView):
 
     # --- scene / coordinate helpers ---------------------------------------
 
-    def _make_base_tiles(self) -> list[tuple[QRectF, QImage]]:
-        tiles: list[tuple[QRectF, QImage]] = []
+    def _make_base_tile_items(self) -> list[QGraphicsPixmapItem]:
+        items: list[QGraphicsPixmapItem] = []
         tile = 512
         for y in range(0, self._img_h, tile):
             h = min(tile, self._img_h - y)
             for x in range(0, self._img_w, tile):
                 w = min(tile, self._img_w - x)
                 crop = self._base.crop((x, y, x + w, y + h))
-                tiles.append((QRectF(x, y, w, h), pil_to_qimage(crop)))
-        return tiles
+                pix = QPixmap.fromImage(pil_to_qimage(crop))
+                item = QGraphicsPixmapItem(pix)
+                item.setOffset(x, y)
+                item.setZValue(0)
+                item.setTransformationMode(Qt.FastTransformation)
+                item.setShapeMode(QGraphicsPixmapItem.BoundingRectShape)
+                items.append(item)
+        return items
 
     def _refresh(self) -> None:
         self._layer.update()

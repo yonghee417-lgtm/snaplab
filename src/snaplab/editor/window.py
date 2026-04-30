@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PIL import Image
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QCursor, QFont, QGuiApplication, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QColorDialog,
@@ -88,14 +88,37 @@ class EditorWindow(QMainWindow):
         self.resize(target_size)
         if target_screen is not None:
             avail = target_screen.availableGeometry()
-            self.setMaximumSize(
-                max(target_size.width(), avail.width()),
-                avail.height(),
-            )
+            max_size = self._max_window_size(target_size)
+            self.setMaximumSize(max_size)
             # Position on the target screen so Qt doesn't drop the window on
             # the primary first and migrate it (which is what causes the
             # mixed-DPI resize quirk).
             self.move(avail.left() + 40, avail.top() + 40)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # Force a full repaint chain after the native window is shown.
+        # Without this, on some mixed-DPI / wide-canvas configurations the
+        # QWindowsBackingStore never receives its first flush and the entire
+        # client area renders as the OS default (light gray) — toolbars,
+        # canvas, status bar all invisible.
+        QTimer.singleShot(0, self._force_initial_repaint)
+        QTimer.singleShot(50, self._force_initial_repaint)
+
+    def _force_initial_repaint(self) -> None:
+        from PySide6.QtWidgets import QApplication, QWidget
+
+        for w in self.findChildren(QWidget):
+            w.update()
+        self.update()
+        QApplication.processEvents()
+        self.repaint()
+        # Nudge resize bounces the layout engine and forces the backing store
+        # to fully reallocate against the final geometry — this is what
+        # actually wakes up Qt's QWindowsBackingStore on wide / tall editors.
+        sz = self.size()
+        self.resize(sz.width() + 1, sz.height())
+        self.resize(sz)
 
     def _screen_for_editor(self):
         screen = QGuiApplication.screenAt(QCursor.pos())
@@ -117,6 +140,8 @@ class EditorWindow(QMainWindow):
     # available screen. Save/copy still operates on the full-resolution capture;
     # the user can Ctrl+Wheel zoom inside the editor to inspect at 100%.
     MAX_SCREEN_FRACTION = 0.9
+    MAX_WINDOW_WIDTH = 2200
+    MAX_WINDOW_HEIGHT = 1280
 
     def _initial_window_size(self, image: Image.Image) -> QSize:
         screen = self._screen_for_editor()
@@ -125,11 +150,21 @@ class EditorWindow(QMainWindow):
         target_w = int(round(image.width * zoom)) + 72
         target_h = int(round(image.height * zoom)) + 190
         if available is not None:
-            cap_w = max(760, int(available.width() * self.MAX_SCREEN_FRACTION))
-            cap_h = max(560, int(available.height() * self.MAX_SCREEN_FRACTION))
+            cap_w = min(self.MAX_WINDOW_WIDTH, max(760, int(available.width() * self.MAX_SCREEN_FRACTION)))
+            cap_h = min(self.MAX_WINDOW_HEIGHT, max(560, int(available.height() * self.MAX_SCREEN_FRACTION)))
             target_w = min(target_w, cap_w)
             target_h = min(target_h, cap_h)
         return QSize(max(760, target_w), max(560, target_h))
+
+    def _max_window_size(self, fallback: QSize) -> QSize:
+        screen = self._screen_for_editor()
+        available = screen.availableGeometry() if screen else None
+        if available is None:
+            return fallback
+        return QSize(
+            min(self.MAX_WINDOW_WIDTH, max(fallback.width(), int(available.width() * self.MAX_SCREEN_FRACTION))),
+            min(self.MAX_WINDOW_HEIGHT, max(fallback.height(), int(available.height() * self.MAX_SCREEN_FRACTION))),
+        )
 
     # --- UI ----------------------------------------------------------------
 
@@ -257,7 +292,14 @@ class EditorWindow(QMainWindow):
                 background: #101318;
                 color: #E8EEF7;
             }
-            QGraphicsView, QScrollArea {
+            /* Do NOT style QGraphicsView here. Qt 6 has a known
+               incompatibility between stylesheets and QGraphicsView's
+               scene rendering on high-DPI displays — applying a
+               background through the stylesheet makes the backing store
+               fail to flush and the whole window renders as a blank gray
+               panel. The Canvas (QGraphicsView subclass) sets its own
+               background via setBackgroundBrush(). */
+            QScrollArea {
                 background: #0B0E13;
                 border: 0;
             }

@@ -43,16 +43,37 @@ def main() -> int:
         print("PyInstaller가 필요합니다. `pip install pyinstaller` 실행 후 다시 시도하세요.")
         return 1
 
+    # Hidden imports: dynamically-imported modules PyInstaller's static analysis
+    # misses (capture backends, Qt platform plugins, etc.).
+    hidden = [
+        "bettercam",
+        "comtypes",
+        "comtypes.client",
+        "cv2",
+        "pynput",
+        "pynput.keyboard._win32",
+        "pynput.mouse._win32",
+        "PIL.ImageGrab",
+        "mss",
+        "mss.windows",
+        "websocket",
+        "win32api",
+        "win32gui",
+        "win32con",
+    ]
+
     cmd: list[str] = [
         sys.executable,
         "-m",
         "PyInstaller",
         "--name=snaplab",
         "--noconfirm",
-        "--windowed",  # no console on Windows/macOS
-        "--onefile",
+        "--windowed",       # no console on Windows/macOS
+        "--onedir",         # one-folder build — fast startup, easier antivirus
         f"--add-data={ASSETS}{_sep()}assets",
         "--paths=src",
+        "--collect-submodules=PySide6",
+        *[f"--hidden-import={m}" for m in hidden],
         *_icon_arg(),
         "src/snaplab/__main__.py",
     ]

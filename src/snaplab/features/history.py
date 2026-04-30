@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 
 from ..paths import history_dir
 from ..settings import get_settings
-from ..utils.image import expand_filename, save_png
+from ..utils.image import expand_filename, pil_to_qimage, save_png
 
 
 HISTORY_LIMIT = 10
@@ -115,10 +115,13 @@ class HistoryWindow(QMainWindow):
         self._list.clear()
         files = sorted(history_dir().glob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
         for f in files[:HISTORY_LIMIT]:
-            pix = QPixmap(str(f))
-            if pix.isNull():
+            try:
+                with Image.open(f) as im:
+                    thumb_img = im.convert("RGB")
+                    thumb_img.thumbnail((160, 120), Image.Resampling.LANCZOS)
+                    thumb = QPixmap.fromImage(pil_to_qimage(thumb_img))
+            except Exception:
                 continue
-            thumb = pix.scaled(160, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             item = QListWidgetItem(QIcon(thumb), f.name)
             item.setData(Qt.UserRole, str(f))
             self._list.addItem(item)

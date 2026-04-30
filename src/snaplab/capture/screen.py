@@ -710,11 +710,10 @@ def _grab_qt(rect: Rect) -> Image.Image:
 # --- blank detection ------------------------------------------------------
 
 def _looks_blank(img: Image.Image) -> bool:
-    """Return True only for genuinely flat black/blank captures.
+    """Return True for suspiciously uniform black/white backend output.
 
-    Dark applications often have several matching sample points, so sample-only
-    checks can reject valid captures. Use image-wide extrema on a thumbnail
-    first, then only treat near-uniform very dark frames as blank.
+    This is only a fallback signal. A real screen can be all black or all white,
+    so callers must never treat this result as a final capture failure by itself.
     """
     w, h = img.size
     if w < 4 or h < 4:
@@ -805,8 +804,8 @@ def grab(rect: Rect) -> Image.Image:
             continue
         stats = _image_stats(img)
         if _looks_blank(img):
-            errors.append(f"{name}: returned blank image ({stats})")
-            _log(f"backend {name} returned blank ({stats}) — trying next")
+            errors.append(f"{name}: returned uniform-looking image ({stats})")
+            _log(f"backend {name} returned uniform-looking image ({stats}) - trying next")
             if blank_result is None:
                 blank_result = img
             continue
@@ -814,8 +813,8 @@ def grab(rect: Rect) -> Image.Image:
         return img
 
     if blank_result is not None:
-        _log("ALL backends returned blank. Errors:\n  " + "\n  ".join(errors))
-        raise RuntimeError("화면 캡처가 검은 화면으로만 반환되었습니다.\n  " + "\n  ".join(errors))
+        _log("all successful backends looked uniform; returning the first candidate as a valid capture")
+        return blank_result
     raise RuntimeError("화면 캡처 실패. 시도한 방법:\n  " + "\n  ".join(errors))
 
 
