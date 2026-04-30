@@ -19,10 +19,12 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QToolBar,
     QToolButton,
+    QVBoxLayout,
     QWidget,
     QComboBox,
 )
 
+from ..features.banner import BannerWidget
 from ..paths import default_save_dir
 from ..settings import get_settings
 from ..tray import app_icon
@@ -56,7 +58,28 @@ class EditorWindow(QMainWindow):
         self._updating_text_panel = False
         self._apply_theme()
 
-        self.setCentralWidget(self._canvas)
+        # 중앙 위젯 = 캔버스(상단·확장) + 배너 행(하단·고정·중앙정렬)
+        # 더 아래의 액션 툴바(BottomToolBarArea)는 Qt가 별도로 관리하므로
+        # 결과적으로 [캔버스 → 배너 → 액션바] 순서로 화면에 쌓임
+        center = QWidget()
+        center_layout = QVBoxLayout(center)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(0)
+        center_layout.addWidget(self._canvas, 1)
+
+        banner_row = QWidget()
+        banner_row.setStyleSheet(
+            "QWidget { background: rgba(11,14,19,0.6); border-top: 1px solid #2A3340; }"
+        )
+        banner_layout = QHBoxLayout(banner_row)
+        banner_layout.setContentsMargins(8, 6, 8, 6)
+        banner_layout.addStretch(1)
+        self._banner = BannerWidget(slot_id="main-bottom", width=600, height=60)
+        banner_layout.addWidget(self._banner)
+        banner_layout.addStretch(1)
+        center_layout.addWidget(banner_row, 0)
+
+        self.setCentralWidget(center)
 
         self._build_toolbar()
         self._build_text_toolbar()
@@ -148,7 +171,8 @@ class EditorWindow(QMainWindow):
         available = screen.availableGeometry() if screen else None
         zoom = self._canvas.zoom()
         target_w = int(round(image.width * zoom)) + 72
-        target_h = int(round(image.height * zoom)) + 190
+        # +190(툴바/상태바/크롬) + 72(하단 배너 행 60+여백) = 262
+        target_h = int(round(image.height * zoom)) + 262
         if available is not None:
             cap_w = min(self.MAX_WINDOW_WIDTH, max(760, int(available.width() * self.MAX_SCREEN_FRACTION)))
             cap_h = min(self.MAX_WINDOW_HEIGHT, max(560, int(available.height() * self.MAX_SCREEN_FRACTION)))
