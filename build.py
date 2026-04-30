@@ -75,7 +75,7 @@ def main() -> int:
         "--collect-submodules=PySide6",
         *[f"--hidden-import={m}" for m in hidden],
         *_icon_arg(),
-        "src/snaplab/__main__.py",
+        "snaplab_launch.py",
     ]
     print("Running:", " ".join(cmd))
     return subprocess.run(cmd, cwd=ROOT).returncode
