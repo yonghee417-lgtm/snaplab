@@ -30,6 +30,50 @@ from ..utils.image import expand_filename, pil_to_qimage, save_png
 
 
 HISTORY_LIMIT = 10
+THUMB_SIZE = (160, 120)
+
+
+def _thumbs_dir() -> Path:
+    p = history_dir() / ".thumbs"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _load_or_build_thumb(src: Path) -> QPixmap | None:
+    """Return a cached thumbnail; rebuild only when the source changed.
+
+    Cache key = source mtime. If source is newer than the cached PNG, regenerate
+    once and reuse forever. Stale thumbs are pruned by enforce_limit when the
+    parent capture is deleted.
+    """
+    try:
+        cache = _thumbs_dir() / (src.stem + ".png")
+        if cache.exists() and cache.stat().st_mtime >= src.stat().st_mtime:
+            pix = QPixmap(str(cache))
+            if not pix.isNull():
+                return pix
+        with Image.open(src) as im:
+            thumb_img = im.convert("RGB")
+            thumb_img.thumbnail(THUMB_SIZE, Image.Resampling.LANCZOS)
+            thumb_img.save(cache, format="PNG", optimize=False)
+        return QPixmap.fromImage(pil_to_qimage(thumb_img))
+    except Exception:
+        return None
+
+
+def _prune_orphan_thumbs() -> None:
+    """Drop cached thumbs whose source PNG no longer exists."""
+    try:
+        thumbs = _thumbs_dir()
+        live = {p.stem for p in history_dir().glob("*.png")}
+        for t in thumbs.glob("*.png"):
+            if t.stem not in live:
+                try:
+                    t.unlink()
+                except OSError:
+                    pass
+    except Exception:
+        pass
 
 
 def add_to_history(img: Image.Image) -> Path:
@@ -63,6 +107,7 @@ def _enforce_max(limit: int) -> None:
             old.unlink()
         except OSError:
             pass
+    _prune_orphan_thumbs()
 
 
 def open_in_os(path: Path) -> None:
@@ -115,12 +160,8 @@ class HistoryWindow(QMainWindow):
         self._list.clear()
         files = sorted(history_dir().glob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
         for f in files[:HISTORY_LIMIT]:
-            try:
-                with Image.open(f) as im:
-                    thumb_img = im.convert("RGB")
-                    thumb_img.thumbnail((160, 120), Image.Resampling.LANCZOS)
-                    thumb = QPixmap.fromImage(pil_to_qimage(thumb_img))
-            except Exception:
+            thumb = _load_or_build_thumb(f)
+            if thumb is None:
                 continue
             item = QListWidgetItem(QIcon(thumb), f.name)
             item.setData(Qt.UserRole, str(f))

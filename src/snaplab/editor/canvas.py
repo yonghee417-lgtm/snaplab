@@ -253,8 +253,29 @@ class Canvas(QGraphicsView):
         return items
 
     def _refresh(self) -> None:
+        # Full-layer invalidate. Used after add/remove/clear when Qt has no
+        # way to know which region changed.
         self._layer.update()
-        self.viewport().update()
+
+    def _refresh_rect(self, rect: QRect | None) -> None:
+        """Invalidate just the area an annotation occupies + a small margin
+        for line width and arrow heads. Falls back to full refresh if no rect."""
+        if rect is None or rect.isNull() or rect.isEmpty():
+            self._layer.update()
+            return
+        # Margin covers thick pens, arrow heads and selection handles.
+        margin = max(8, self._style.width * 4)
+        r = QRectF(rect.adjusted(-margin, -margin, margin, margin))
+        self._layer.update(r)
+
+    def _annotation_bounds(self, a: "Annotation") -> QRect:
+        if a.kind == "pen" and a.points:
+            xs = [p.x() for p in a.points]
+            ys = [p.y() for p in a.points]
+            r = QRect(min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1)
+        else:
+            r = QRect(a.p1, a.p2).normalized()
+        return r
 
     def _to_image_point(self, p: QPoint) -> QPoint:
         scene_pt = self.mapToScene(p)
@@ -550,10 +571,17 @@ class Canvas(QGraphicsView):
         if not self._drawing or self._current is None:
             super().mouseMoveEvent(e)
             return
+        # Compute pre-update bounds so the previously painted area gets
+        # invalidated together with the new one — otherwise the trailing
+        # outline of a shrinking shape would stay on screen until the next
+        # full repaint.
+        old_bounds = self._annotation_bounds(self._current)
         self._current.p2 = self._constrained_point(self._current.p1, pt, self._current.kind, e.modifiers())
         if self._current.kind == "pen":
             self._current.points.append(pt)
-        self._refresh()
+        new_bounds = self._annotation_bounds(self._current)
+        union = old_bounds.united(new_bounds)
+        self._refresh_rect(union)
         e.accept()
 
     def mouseReleaseEvent(self, e: QMouseEvent) -> None:

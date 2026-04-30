@@ -10,7 +10,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from .paths import default_save_dir, settings_path
 
@@ -43,10 +43,19 @@ class Settings(QObject):
 
     changed = Signal(str)
 
+    # Coalesce rapid set() calls into a single disk write so dragging a
+    # spinner or typing in the hotkey field doesn't hammer the SSD.
+    _SAVE_DEBOUNCE_MS = 200
+
     def __init__(self, path: Path | None = None) -> None:
         super().__init__()
         self._path = path or settings_path()
         self._data: dict[str, Any] = deepcopy(DEFAULTS)
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(self._SAVE_DEBOUNCE_MS)
+        self._save_timer.timeout.connect(self._save)
+        self._dirty = False
         self._load()
 
     def _load(self) -> None:
@@ -62,6 +71,7 @@ class Settings(QObject):
             self._save()
 
     def _save(self) -> None:
+        self._dirty = False
         try:
             self._path.write_text(
                 json.dumps(self._data, indent=2, ensure_ascii=False),
@@ -70,6 +80,18 @@ class Settings(QObject):
         except OSError:
             pass
 
+    def _schedule_save(self) -> None:
+        self._dirty = True
+        # Restart the debounce window — a fresh edit pushes the write out
+        # by another _SAVE_DEBOUNCE_MS so a burst of edits collapses to one.
+        self._save_timer.start()
+
+    def flush(self) -> None:
+        """Force pending changes to disk immediately (called on app quit)."""
+        if self._dirty:
+            self._save_timer.stop()
+            self._save()
+
     def get(self, key: str) -> Any:
         return self._data.get(key, DEFAULTS.get(key))
 
@@ -77,7 +99,7 @@ class Settings(QObject):
         if self._data.get(key) == value:
             return
         self._data[key] = value
-        self._save()
+        self._schedule_save()
         self.changed.emit(key)
 
     def all(self) -> dict[str, Any]:

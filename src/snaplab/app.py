@@ -307,6 +307,11 @@ class SnaplabApp(QObject):
     def quit(self) -> None:
         self.hotkeys.stop()
         self.tray.hide()
+        # Persist any pending settings before exit (debounced writes).
+        try:
+            self.settings.flush()
+        except Exception:
+            pass
         self.qapp.quit()
 
 
