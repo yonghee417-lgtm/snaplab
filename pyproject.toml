@@ -1,0 +1,16 @@
+[project]
+name = "snaplab"
+version = "0.1.0"
+description = "Lightweight but powerful screen capture tool for Windows and macOS"
+requires-python = ">=3.10"
+authors = [{ name = "snaplab" }]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+snaplab = "snaplab.__main__:main"

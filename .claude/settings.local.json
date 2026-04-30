@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m compileall -q src)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(xargs python *)",
+      "Bash(python -m venv .venv)",
+      "Bash(.venv/Scripts/python.exe -m pip install -r requirements.txt)",
+      "Bash(tasklist)",
+      "Bash(echo \"  taskkill //PID 35648 //F\")",
+      "Bash(taskkill //PID 35648 //F)",
+      "Bash(taskkill //PID 33724 //F)",
+      "Bash(.venv/Scripts/python.exe -m pip install -e .)",
+      "Bash(.venv/Scripts/python.exe -m pip install bettercam)",
+      "Bash(.venv/Scripts/python.exe -m pip install opencv-python)",
+      "Bash(awk '{print $2}')",
+      "Bash(xargs -I {} taskkill //PID {} //F)",
+      "Bash(.venv/Scripts/python.exe -c \"from snaplab.capture import area; print\\('imports OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe -m pip install windows-capture)",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(.venv/Scripts/python.exe -c \"from snaplab.capture import screen; print\\('OK'\\)\")",
+      "Bash(gh auth *)",
+      "Bash(git init *)",
+      "Bash(git add *)"
+    ]
+  }
+}
